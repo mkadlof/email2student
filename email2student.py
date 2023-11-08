@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import re
 import sys
 from typing import List
 
@@ -11,6 +12,8 @@ try:
 except ModuleNotFoundError:
     print("Cannot find ldap_config.py. Please create this file and define the following variables: LDAP_SERVER, LDAP_PORT, LDAP_BASE_DN", file=sys.stderr)
     sys.exit(1)
+
+email_regex = re.compile(r'^[\w\-.]+@(?:[\w-]+\.)+[\w-]{2,4}$')
 
 
 def make_ldap_connection() -> ldap.ldapobject.LDAPObject:
@@ -27,6 +30,13 @@ def parse_list_of_emails_into_ldap_filter(emails: List[str]) -> str:
     return ldap_filter
 
 
+def validate_emails(emails: List[str]) -> None:
+    for email in emails:
+        if not re.match(email_regex, email):
+            print(f"Invalid email address: {email}", file=sys.stderr)
+            sys.exit(1)
+
+
 def get_emails_from_file_or_from_stdin(args: argparse.Namespace) -> List[str]:
     # Read email addresses from stdin or from a file or from command line arguments
     if args.input_file:
@@ -36,6 +46,7 @@ def get_emails_from_file_or_from_stdin(args: argparse.Namespace) -> List[str]:
         emails = args.email_list
     else:
         emails = [line.strip() for line in sys.stdin]
+    validate_emails(emails)
     return emails
 
 
@@ -61,6 +72,16 @@ def main():
     results = conn.search_s(LDAP_BASE_DN, ldap.SCOPE_SUBTREE, search_filter)
     conn.unbind()
     display_results(results)
+
+    # Check if all email addresses were found, if not, print a warning, and list the missing email addresses
+    if len(results) != len(emails):
+        print("WARNING! Some email addresses were not found in the LDAP database.", file=sys.stderr)
+        mails_from = []
+        for r in results:
+            mails_from.append(r[1].get("mail", [])[0].decode("utf-8"))
+        for email in emails:
+            if email not in mails_from:
+                print(f"Missing email address: {email}", file=sys.stderr)
 
 
 if __name__ == '__main__':
